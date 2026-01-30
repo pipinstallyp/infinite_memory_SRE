@@ -1,0 +1,300 @@
+============================================================
+RLM Log Analyzer - Root Cause Analysis
+============================================================
+
+Log file: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/log/Apache_2k.log
+Run artifacts: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/runs
+Main model (code generation): openai/gpt-4o
+Sub model (semantic queries): z-ai/glm-4.7-flash
+Budget: $2.00 (reserve $0.35)
+
+Loading log file...
+Loaded 169,240 characters (2000 lines)
+
+Initializing language models...
+Models initialized successfully!
+
+Creating RLM analyzer...
+RLM analyzer created!
+
+============================================================
+Starting RLM Analysis...
+============================================================
+
+The RLM will iteratively write Python code to:
+  1. Explore and understand the log structure
+  2. Identify error patterns and frequencies
+  3. Use llm_query() for semantic analysis of log entries
+  4. Correlate events to find root causes
+  5. Submit final analysis with recommendations
+
+------------------------------------------------------------
+[lm] call start: openai/gpt-4o
+[lm] call end:   openai/gpt-4o duration=5.41s error=APIError +tokens(p/c/t)=0/0/0 +cost=$0.0000 total=$0.0000
+[lm] call start: openai/gpt-4o
+[lm] call end:   openai/gpt-4o duration=3.68s error=APIError +tokens(p/c/t)=0/0/0 +cost=$0.0000 total=$0.0000
+
+❌ Error during analysis: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys","code":403}}
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 221, in _make_common_sync_call
+    response = sync_httpx_client.post(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 1010, in post
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 992, in post
+    response.raise_for_status()
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '403 Forbidden' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 3137, in completion
+    response = base_llm_http_handler.completion(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 524, in completion
+    response = self._make_common_sync_call(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 246, in _make_common_sync_call
+    raise self._handle_error(e=e, provider_config=provider_config)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 4505, in _handle_error
+    raise provider_config.get_error_class(
+litellm.llms.openrouter.common_utils.OpenRouterException: {"error":{"message":"Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys","code":403}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys","code":403}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 73, in __call__
+    return super().__call__(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/base.py", line 202, in __call__
+    outputs = lm(messages=inputs, **lm_kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/base_lm.py", line 91, in __call__
+    response = self.forward(prompt=prompt, messages=messages, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 159, in forward
+    results = completion(
+              ^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/cache.py", line 253, in sync_wrapper
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 360, in litellm_completion
+    return litellm.completion(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1685, in wrapper
+    return litellm.completion_with_retries(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4268, in completion_with_retries
+    return retryer(original_function, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 477, in __call__
+    do = self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 378, in iter
+    result = action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 420, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 187, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 480, in __call__
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1740, in wrapper
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys","code":403}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 221, in _make_common_sync_call
+    response = sync_httpx_client.post(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 1010, in post
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 992, in post
+    response.raise_for_status()
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '403 Forbidden' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 3137, in completion
+    response = base_llm_http_handler.completion(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 524, in completion
+    response = self._make_common_sync_call(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 246, in _make_common_sync_call
+    raise self._handle_error(e=e, provider_config=provider_config)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 4505, in _handle_error
+    raise provider_config.get_error_class(
+litellm.llms.openrouter.common_utils.OpenRouterException: {"error":{"message":"Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys","code":403}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys","code":403}}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/rlm_log_analyze.py", line 505, in main
+    result = rlm_analyzer(log_content=log_content)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/primitives/module.py", line 82, in __call__
+    return self.forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/rlm_log_analyze.py", line 324, in forward
+    result = self._execute_iteration(repl, variables, history, iteration, input_args, output_field_names)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/rlm.py", line 501, in _execute_iteration
+    action = self.generate_action(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/predict.py", line 104, in __call__
+    return super().__call__(**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/primitives/module.py", line 82, in __call__
+    return self.forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/predict.py", line 198, in forward
+    completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 86, in __call__
+    return JSONAdapter()(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/json_adapter.py", line 73, in __call__
+    result = self._json_adapter_call_common(lm, lm_kwargs, signature, demos, inputs, super().__call__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/json_adapter.py", line 63, in _json_adapter_call_common
+    return call_fn(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 85, in __call__
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 73, in __call__
+    return super().__call__(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/base.py", line 202, in __call__
+    outputs = lm(messages=inputs, **lm_kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/base_lm.py", line 91, in __call__
+    response = self.forward(prompt=prompt, messages=messages, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 159, in forward
+    results = completion(
+              ^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/cache.py", line 253, in sync_wrapper
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 360, in litellm_completion
+    return litellm.completion(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1685, in wrapper
+    return litellm.completion_with_retries(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4268, in completion_with_retries
+    return retryer(original_function, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 477, in __call__
+    do = self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 378, in iter
+    result = action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 420, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 187, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 480, in __call__
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1740, in wrapper
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys","code":403}}

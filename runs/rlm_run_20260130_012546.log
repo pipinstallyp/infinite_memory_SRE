@@ -1,0 +1,581 @@
+============================================================
+RLM Log Analyzer - Root Cause Analysis
+============================================================
+
+Log file: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/log/Apache_2k.log
+Run artifacts: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/runs
+Main model (code generation): openai/gpt-5.2
+Sub model (semantic queries): z-ai/glm-4.7-flash
+Budget: $2.00 (reserve $0.35)
+
+Loading log file...
+Loaded 169,240 characters (2000 lines)
+
+Initializing language models...
+Models initialized successfully!
+
+Creating RLM analyzer...
+RLM analyzer created!
+
+============================================================
+Starting RLM Analysis...
+============================================================
+
+The RLM will iteratively write Python code to:
+  1. Explore and understand the log structure
+  2. Identify error patterns and frequencies
+  3. Use llm_query() for semantic analysis of log entries
+  4. Correlate events to find root causes
+  5. Submit final analysis with recommendations
+
+------------------------------------------------------------
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=18.86s +tokens(p/c/t)=1072/614/1686 +cost=$0.0105 total=$0.0105
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=28.29s +tokens(p/c/t)=1066/1486/2552 +cost=$0.0227 total=$0.0331
+2026/01/30 01:27:35 INFO dspy.predict.rlm: RLM iteration 1/10
+Reasoning: First, inspect the log structure: number of lines, time span, and frequency of log levels. Then extract and summarize error lines to see dominant failure patterns (e.g., mod_jk/workerEnv error states, backend connection failures).
+Code:
+import re, collections, datetime
+
+text = log_content
+lines = text.splitlines()
+print('Total chars:', len(text))
+print('Total lines:', len(lines))
+print('First 5 lines:')
+for l in lines[:5]:
+    print(l)
+print('\nLast 5 lines:')
+for l in lines[-5:]:
+    print(l)
+
+# Count log levels like [error], [notice], [warn]
+level_re = re.compile(r'\[(error|notice|warn|info|debug)\]')
+levels = collections.Counter()
+for l in lines:
+    m = level_re.search(l)
+    if m:
+        levels[m.group(1)] += 1
+print('\nLevel counts:', levels)
+
+# Extract error lines
+error_lines = [l for l in lines if '[error]' in l]
+print('Error lines:', len(error_lines))
+print('\nSample error lines:')
+for l in error_lines[:20]:
+    print(l)
+
+# Top error messages (strip timestamp/prefix)
+msg_counter = collections.Counter()
+for l in error_lines:
+    # remove leading timestamp and module part
+    msg = re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+    msg_counter[msg] += 1
+print('\nTop 15 error messages:')
+for msg, cnt in msg_counter.most_common(15):
+    print(cnt, msg)
+
+# Try to parse timestamps to find range
+# Format: [Sun Dec 04 04:47:44 2005]
+time_re = re.compile(r'^\[([A-Za-z]{3})\s+([A-Za-z]{3})\s+(\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})\]')
+months = {m:i for i,m in enumerate(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'], start=1)}
+parsed_times = []
+for l in lines:
+    m = time_re.match(l)
+    if m:
+        mon = months[m.group(2)]
+        day = int(m.group(3))
+        year = int(m.group(5))
+        hh,mm,ss = map(int, m.group(4).split(':'))
+        parsed_times.append(datetime.datetime(year, mon, day, hh, mm, ss))
+if parsed_times:
+    print('\nTime range:', min(parsed_times), 'to', max(parsed_times))
+    print('Unique days:', len({t.date() for t in parsed_times}))
+else:
+    print('No timestamps parsed')
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=31.74s +tokens(p/c/t)=2979/1566/4545 +cost=$0.0271 total=$0.0603
+2026/01/30 01:28:44 INFO dspy.predict.rlm: RLM iteration 2/10
+Reasoning: Most errors are repetitive “mod_jk child workerEnv in error state X” right after workerEnv.init/jk2_init messages, suggesting a mod_jk2 initialization/runtime failure rather than app-level 404s. Next I’ll extract context around the first occurrences of each error-state and search the log for lower-level causes (socket/connect/config/permission messages) that might explain why workerEnv enters these error states.[[ ## code ## ]]
+```python
+import re, itertools, collections
+
+lines = log_content.splitlines()
+
+# find first occurrence index of each error state
+state_re = re.compile(r'mod_jk child workerEnv in error state (\d+)')
+first_idx = {}
+for i,l in enumerate(lines):
+    m = state_re.search(l)
+    if m and m.group(1) not in first_idx:
+        first_idx[m.group(1)] = i
+
+print("First occurrence per error state:", dict(sorted(first_idx.items(), key=lambda kv:int(kv[0]))))
+
+def show_context(idx, before=6, after=6):
+    start = max(0, idx-before)
+    end = min(len(lines), idx+after+1)
+    for j in range(start,end):
+        prefix = ">>" if j==idx else "  "
+        print(f"{prefix} {j:04d} {lines[j]}")
+    print("-"*120)
+
+for st in sorted(first_idx, key=lambda x:int(x)):
+    print(f"\n=== Context for error state {st} (idx {first_idx[st]}) ===")
+    show_context(first_idx[st])
+
+# Search for likely root-cause keywords
+keywords = [
+    "jk", "jk2", "worker", "workers2.properties", "channel", "socket", "connect", "refused",
+    "timeout", "errno", "No such file", "permission", "shm", "shared", "ajp", "tomcat",
+    "map", "uri", "balancer", "lb", "dns", "resolve", "malloc", "segfault", "core"
+]
+hits = collections.Counter()
+for l in lines:
+    low = l.lower()
+    for k in keywords:
+        if k.lower() in low:
+            hits[k] += 1
+
+print("\nKeyword hit counts (top 20):")
+for k,c in hits.most_common(20):
+    print(f"{c:5d} {k}")
+
+# Show non-standard error lines beyond the generic "error state" ones
+generic_re = re.compile(r'mod_jk child workerEnv in error state \d+')
+other_errors = [l for l in lines if "[error]" in l and not generic_re.search(l)]
+print("\nNon-generic [error] lines:", len(other_errors))
+for l in other_errors[:60]:
+    print(l)
+```[[ ## reasoning ## ]]
+Most errors are repetitive “mod_jk child workerEnv in error state X” right after workerEnv.init/jk2_init messages, suggesting a mod_jk2 initialization/runtime failure rather than app-level 404s. Next I’ll extract context around the first occurrences of each error-state and search the log for lower-level causes (socket/connect/config/permission messages) that might explain why workerEnv enters these error states.
+Code:
+```python
+import re, itertools, collections
+
+lines = log_content.splitlines()
+
+# find first occurrence index of each error state
+state_re = re.compile(r'mod_jk child workerEnv in error state (\d+)')
+first_idx = {}
+for i,l in enumerate(lines):
+    m = state_re.search(l)
+    if m and m.group(1) not in first_idx:
+        first_idx[m.group(1)] = i
+
+print("First occurrence per error state:", dict(sorted(first_idx.items(), key=lambda kv:int(kv[0]))))
+
+def show_context(idx, before=6, after=6):
+    start = max(0, idx-before)
+    end = min(len(lines), idx+after+1)
+    for j in range(start,end):
+        prefix = ">>" if j==idx else "  "
+        print(f"{prefix} {j:04d} {lines[j]}")
+    print("-"*120)
+
+for st in sorted(first_idx, key=lambda x:int(x)):
+    print(f"\n=== Context for error state {st} (idx {first_idx[st]}) ===")
+    show_context(first_idx[st])
+
+# Search for likely root-cause keywords
+keywords = [
+    "jk", "jk2", "worker", "workers2.properties", "channel", "socket", "connect", "refused",
+    "timeout", "errno", "No such file", "permission", "shm", "shared", "ajp", "tomcat",
+    "map", "uri", "balancer", "lb", "dns", "resolve", "malloc", "segfault", "core"
+]
+hits = collections.Counter()
+for l in lines:
+    low = l.lower()
+    for k in keywords:
+        if k.lower() in low:
+            hits[k] += 1
+
+print("\nKeyword hit counts (top 20):")
+for k,c in hits.most_common(20):
+    print(f"{c:5d} {k}")
+
+# Show non-standard error lines beyond the generic "error state" ones
+generic_re = re.compile(r'mod_jk child workerEnv in error state \d+')
+other_errors = [l for l in lines if "[error]" in l and not generic_re.search(l)]
+print("\nNon-generic [error] lines:", len(other_errors))
+for l in other_errors[:60]:
+    print(l)
+```
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=23.30s +tokens(p/c/t)=5996/1191/7187 +cost=$0.0272 total=$0.0874
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=27.27s +tokens(p/c/t)=5990/1296/7286 +cost=$0.0286 total=$0.1161
+2026/01/30 01:29:38 INFO dspy.predict.rlm: RLM iteration 3/10
+Reasoning: Need deeper root cause beyond generic “workerEnv in error state X”. I’ll (1) extract all non-generic error lines and their counts, (2) inspect occurrences of “child init 1 -2” with surrounding context, and (3) summarize most common notice lines to spot repeated restarts/scoreboard/shm issues. Also grep for keywords like shm/scoreboard/socket/connect/refused/errno that might appear outside [error] lines.
+Code:
+import re, collections
+lines = log_content.splitlines()
+
+# Separate errors
+generic_re = re.compile(r'mod_jk child workerEnv in error state \d+')
+error_lines = [l for l in lines if '[error]' in l]
+other_errors = [l for l in error_lines if not generic_re.search(l)]
+
+print('Total error lines:', len(error_lines))
+print('Generic workerEnv error-state lines:', len(error_lines) - len(other_errors))
+print('Non-generic error lines:', len(other_errors))
+
+# Count non-generic error messages (strip timestamp+level)
+msg_counter = collections.Counter()
+for l in other_errors:
+    msg = re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+    msg_counter[msg] += 1
+
+print('\nTop non-generic error messages:')
+for msg,cnt in msg_counter.most_common(50):
+    print(f'{cnt:4d} {msg}')
+
+# Find all indices of "child init" errors and show context
+child_init_re = re.compile(r'mod_jk child init')
+idxs = [i for i,l in enumerate(lines) if child_init_re.search(l)]
+print('\nchild init occurrences:', len(idxs), 'first 10 idx:', idxs[:10])
+
+def show_context(idx, before=8, after=10):
+    start = max(0, idx-before)
+    end = min(len(lines), idx+after+1)
+    for j in range(start, end):
+        prefix = '>>' if j==idx else '  '
+        print(f'{prefix} {j:04d} {lines[j]}')
+    print('-'*120)
+
+for i,idx in enumerate(idxs[:5]):
+    print(f'\n=== Context around child init (#{i+1}, idx {idx}) ===')
+    show_context(idx)
+
+# Summarize top notice lines (strip timestamp+level)
+notice_lines = [l for l in lines if '[notice]' in l]
+notice_counter = collections.Counter()
+for l in notice_lines:
+    msg = re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+    notice_counter[msg] += 1
+
+print('\nTop 25 notice messages:')
+for msg,cnt in notice_counter.most_common(25):
+    print(f'{cnt:4d} {msg}')
+
+# Keyword grep (lines that mention shm/scoreboard/socket/connect/refused/errno)
+kw = re.compile(r'(shm|scoreboard|socket|connect|refused|timeout|errno|no such file|permission|ajp|tomcat)', re.I)
+kw_lines = [(i,l) for i,l in enumerate(lines) if kw.search(l)]
+print('\nLines with key low-level keywords:', len(kw_lines))
+for i,(idx,l) in enumerate(kw_lines[:80]):
+    print(f'{idx:04d} {l}')
+
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=50.50s +tokens(p/c/t)=8474/2696/11170 +cost=$0.0526 total=$0.1686
+2026/01/30 01:30:30 INFO dspy.predict.rlm: RLM iteration 4/10
+Reasoning: The dominant failures are mod_jk2 (“workerEnv in error state …”, “child init 1 -2”, and “jk2_init() Can't find child … in scoreboard”), which strongly suggests an internal mod_jk2 initialization/scoreboard/shared-memory problem rather than a backend connect issue. Next I’ll: (1) quantify and extract all scoreboard-related messages, (2) search for shared-memory/mutex/file/permission errors, and (3) check for Apache restarts/child-exit/segfault signals that could cause scoreboard desync.[[ ## code ## ]]
+```python
+import re, collections
+
+lines = log_content.splitlines()
+
+def strip_prefix(l: str) -> str:
+    return re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+
+# 1) Scoreboard-related messages
+score_re = re.compile(r'scoreboard', re.I)
+score_lines = [(i,l) for i,l in enumerate(lines) if score_re.search(l)]
+print("Total lines mentioning scoreboard:", len(score_lines))
+score_msg_counts = collections.Counter(strip_prefix(l) for _,l in score_lines)
+print("\nTop scoreboard-related messages:")
+for msg,cnt in score_msg_counts.most_common(20):
+    print(f"{cnt:4d} {msg}")
+
+# Show context around first few "Can't find child ... in scoreboard"
+cant_find_re = re.compile(r"Can't find child (\d+) in scoreboard", re.I)
+cant_find_idxs = [i for i,l in enumerate(lines) if cant_find_re.search(l)]
+print("\nCan't find child in scoreboard occurrences:", len(cant_find_idxs))
+print("First 15 indices:", cant_find_idxs[:15])
+
+def show_context(idx, before=10, after=12):
+    start = max(0, idx-before)
+    end = min(len(lines), idx+after+1)
+    for j in range(start, end):
+        prefix = ">>" if j==idx else "  "
+        print(f"{prefix} {j:04d} {lines[j]}")
+    print("-"*120)
+
+for idx in cant_find_idxs[:3]:
+    print(f"\n=== Context for 'Can't find child' at idx {idx} ===")
+    show_context(idx)
+
+# 2) Shared memory / mutex / file / permission errors (any level)
+shm_re = re.compile(r'(shm|shared memory|mutex|sem_|semaphore|file|permission denied|no such file|cannot|failed)', re.I)
+shm_lines = [(i,l) for i,l in enumerate(lines) if shm_re.search(l) and ('jk' in l.lower() or 'apache' in l.lower() or 'httpd' in l.lower())]
+print("\nLines matching shm/mutex/file/permission keywords with jk/apache/httpd:", len(shm_lines))
+for idx,l in shm_lines[:120]:
+    print(f"{idx:04d} {l}")
+
+# 3) Apache restarts / signals / child exits
+restart_re = re.compile(r'(graceful|caught sig|sigterm|sighup|segfault|child pid|exit|shutdown|restart|resuming normal operations|server built)', re.I)
+restart_lines = [(i,l) for i,l in enumerate(lines) if restart_re.search(l)]
+print("\nLines suggesting restart/signal/child-exit:", len(restart_lines))
+for idx,l in restart_lines[:120]:
+    print(f"{idx:04d} {l}")
+
+# 4) Any explicit jk2/jk "init failed" lines
+initfail_re = re.compile(r'jk2_.*(fail|error)|workerEnv.*(fail|error)|child init', re.I)
+initfail_lines = [(i,l) for i,l in enumerate(lines) if initfail_re.search(l)]
+print("\nInit-failure related lines:", len(initfail_lines))
+for idx,l in initfail_lines[:80]:
+    print(f"{idx:04d} {l}")
+```[[ ## reasoning ## ]]
+The dominant failures are mod_jk2 (“workerEnv in error state …”, “child init 1 -2”, and “jk2_init() Can't find child … in scoreboard”), which suggests an internal mod_jk2 init/scoreboard/shared-memory desync rather than an app/backend connectivity issue. Next I’ll (1) quantify and extract scoreboard-related messages, (2) search for shared-memory/mutex/file/permission failures that would explain the bad workerEnv states, and (3) check for Apache restarts/signals/child exits that could trigger scoreboard corruption/desync.
+Code:
+```python
+import re, collections
+
+lines = log_content.splitlines()
+
+def strip_prefix(l: str) -> str:
+    return re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+
+# 1) Scoreboard-related messages
+score_re = re.compile(r'scoreboard', re.I)
+score_lines = [(i, l) for i, l in enumerate(lines) if score_re.search(l)]
+print("Total lines mentioning scoreboard:", len(score_lines))
+score_msg_counts = collections.Counter(strip_prefix(l) for _, l in score_lines)
+print("\nTop scoreboard-related messages:")
+for msg, cnt in score_msg_counts.most_common(20):
+    print(f"{cnt:4d} {msg}")
+
+# Show context around first few "Can't find child ... in scoreboard"
+cant_find_re = re.compile(r"Can't find child (\d+) in scoreboard", re.I)
+cant_find_idxs = [i for i, l in enumerate(lines) if cant_find_re.search(l)]
+print("\nCan't find child in scoreboard occurrences:", len(cant_find_idxs))
+print("First 15 indices:", cant_find_idxs[:15])
+
+def show_context(idx, before=10, after=12):
+    start = max(0, idx - before)
+    end = min(len(lines), idx + after + 1)
+    for j in range(start, end):
+        prefix = ">>" if j == idx else "  "
+        print(f"{prefix} {j:04d} {lines[j]}")
+    print("-" * 120)
+
+for idx in cant_find_idxs[:3]:
+    print(f"\n=== Context for 'Can't find child' at idx {idx} ===")
+    show_context(idx)
+
+# 2) Shared memory / mutex / file / permission errors (any level)
+shm_re = re.compile(r'(shm|shared memory|mutex|sem_|semaphore|permission denied|no such file|cannot|failed)', re.I)
+shm_lines = [
+    (i, l) for i, l in enumerate(lines)
+    if shm_re.search(l) and ('jk' in l.lower() or 'apache' in l.lower() or 'httpd' in l.lower())
+]
+print("\nLines matching shm/mutex/file/permission keywords with jk/apache/httpd:", len(shm_lines))
+for idx, l in shm_lines[:160]:
+    print(f"{idx:04d} {l}")
+
+# 3) Apache restarts / signals / child exits
+restart_re = re.compile(
+    r'(graceful|caught sig|sigterm|sighup|segfault|child pid|exit|shutdown|restart|resuming normal operations|server built)',
+    re.I
+)
+restart_lines = [(i, l) for i, l in enumerate(lines) if restart_re.search(l)]
+print("\nLines suggesting restart/signal/child-exit:", len(restart_lines))
+for idx, l in restart_lines[:160]:
+    print(f"{idx:04d} {l}")
+
+# 4) Any explicit jk2/jk init-failure lines
+initfail_re = re.compile(r'jk2_.*(fail|error)|workerEnv.*(fail|error)|child init', re.I)
+initfail_lines = [(i, l) for i, l in enumerate(lines) if initfail_re.search(l)]
+print("\nInit-failure related lines:", len(initfail_lines))
+for idx, l in initfail_lines[:120]:
+    print(f"{idx:04d} {l}")
+```
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=67.37s +tokens(p/c/t)=12056/2807/14863 +cost=$0.0604 total=$0.2290
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=15573.08s +tokens(p/c/t)=12050/2374/14424 +cost=$0.0543 total=$0.2834
+2026/01/30 05:51:14 INFO dspy.predict.rlm: RLM iteration 5/10
+Reasoning: We’ve established the vast majority of errors are from mod_jk/mod_jk2: repetitive “workerEnv in error state {6..10}”, plus “child init 1 -2” and “jk2_init() Can’t find child … in scoreboard”. That points to an internal mod_jk2 child/scoreboard/shared-memory lifecycle issue or crash/restart churn rather than a backend (Tomcat/AJP) connectivity error. Next step: verify whether Apache is repeatedly restarting or children are crashing (segfault/exit/signal), and also confirm whether there are any AJP/connect/refused/timeout messages at all. I’ll summarize restart/crash indicators and extract any connect/AJP-related lines.
+Code:
+import re, collections, datetime
+
+lines = log_content.splitlines()
+
+def strip_prefix(l: str) -> str:
+    return re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+
+# --- 1) Crash/restart/signal indicators ---
+restart_pat = re.compile(
+    r'(segmentation|segfault|signal|sigterm|sighup|sigsegv|core|graceful|shutdown|restart|resuming normal operations|server built|child pid|exit)',
+    re.I,
+)
+restart_lines = [l for l in lines if restart_pat.search(l)]
+print('Restart/crash/signal indicator lines:', len(restart_lines))
+
+# Normalize variable numbers (pids, slots) so we can count message patterns
+norm = lambda s: re.sub(r'\b\d+\b', '<N>', strip_prefix(s))
+restart_counts = collections.Counter(norm(l) for l in restart_lines)
+print('\nTop restart/crash/signal patterns:')
+for msg, cnt in restart_counts.most_common(40):
+    print(f'{cnt:4d} {msg}')
+
+# Print a few raw examples, especially segfault/signal
+focus_pat = re.compile(r'(segmentation|segfault|sigsegv|core|signal)', re.I)
+focus = [l for l in restart_lines if focus_pat.search(l)]
+print('\nSegfault/signal/core lines:', len(focus))
+for l in focus[:60]:
+    print(l)
+
+# --- 2) Look for backend connectivity/AJP errors (connect/refused/timeout) ---
+conn_pat = re.compile(r'(ajp|tomcat|connect\(|connection|refused|timed?\s*out|timeout|errno|unreachable|no route|broken pipe)', re.I)
+conn_lines = [l for l in lines if conn_pat.search(l)]
+print('\nLines mentioning AJP/connect/refused/timeout/errno/tomcat:', len(conn_lines))
+
+# Show only the ones that are not just generic jk2_init scoreboard chatter
+# (i.e., filter out "Found child ... in scoreboard")
+noise_pat = re.compile(r'jk2_init\(\) Found child .* in scoreboard', re.I)
+conn_lines_filtered = [l for l in conn_lines if not noise_pat.search(l)]
+print('Filtered (excluding jk2_init Found child...):', len(conn_lines_filtered))
+for l in conn_lines_filtered[:120]:
+    print(l)
+
+# --- 3) Summarize all jk/jk2 lines excluding the repetitive workerEnv error-state ---
+generic_state = re.compile(r'mod_jk child workerEnv in error state \d+', re.I)
+jk_lines = [l for l in lines if 'jk' in l.lower()]
+jk_non_generic = [l for l in jk_lines if not generic_state.search(l)]
+print('\nTotal jk* lines:', len(jk_lines))
+print('jk* lines excluding generic workerEnv error-state:', len(jk_non_generic))
+
+jk_non_generic_counts = collections.Counter(norm(l) for l in jk_non_generic)
+print('\nTop non-generic jk* message patterns:')
+for msg, cnt in jk_non_generic_counts.most_common(50):
+    print(f'{cnt:4d} {msg}')
+
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=52.82s +tokens(p/c/t)=14826/2734/17560 +cost=$0.0642 total=$0.3476
+2026/01/30 05:52:09 INFO dspy.predict.rlm: RLM iteration 6/10
+Reasoning: We still lack a concrete low-level cause behind the repetitive mod_jk/mod_jk2 “workerEnv in error state X” messages. Next I’ll search the full log for any explicit failure/errno/permission/shm/socket/open messages (especially around jk/jk2), and for true Apache restart/startup indicators (Apache/version, resuming normal operations, caught signal). This should confirm whether the mod_jk2 scoreboard/shared-memory layer is failing or if Apache is repeatedly restarting/crashing.[[ ## code ## ]]
+```python
+import re, collections
+
+lines = log_content.splitlines()
+
+def strip_prefix(l: str) -> str:
+    return re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+
+def norm_nums(s: str) -> str:
+    return re.sub(r'\b\d+\b', '<N>', s)
+
+# 1) Look for explicit failure-ish text anywhere
+fail_pat = re.compile(r"(can't|cannot|failed|failure|errno|permission denied|no such file|invalid|corrupt|segmentation|assert|panic)", re.I)
+fail_lines = [(i,l) for i,l in enumerate(lines) if fail_pat.search(l)]
+print("Explicit fail-ish lines:", len(fail_lines))
+# Show top patterns
+fail_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in fail_lines)
+print("\nTop 40 fail-ish patterns:")
+for msg,cnt in fail_counts.most_common(40):
+    print(f"{cnt:4d} {msg}")
+
+print("\nFirst 80 raw fail-ish lines:")
+for idx,l in fail_lines[:80]:
+    print(f"{idx:04d} {l}")
+
+# 2) Restrict to jk/jk2 related explicit failures
+fail_jk_lines = [(i,l) for i,l in fail_lines if 'jk' in l.lower()]
+print("\nFail-ish lines that mention jk/jk2:", len(fail_jk_lines))
+jk_fail_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in fail_jk_lines)
+print("\nTop jk fail-ish patterns:")
+for msg,cnt in jk_fail_counts.most_common(40):
+    print(f"{cnt:4d} {msg}")
+print("\nRaw jk fail-ish lines:")
+for idx,l in fail_jk_lines[:120]:
+    print(f"{idx:04d} {l}")
+
+# 3) True Apache lifecycle indicators
+apache_pat = re.compile(r"(apache/|httpd|resuming normal operations|configured -- resuming|server built|caught sig|sigterm|sighup|graceful|shutdown|restart)", re.I)
+apache_lines = [(i,l) for i,l in enumerate(lines) if apache_pat.search(l)]
+print("\nApache lifecycle-ish lines:", len(apache_lines))
+apache_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in apache_lines)
+print("\nTop 40 Apache lifecycle-ish patterns:")
+for msg,cnt in apache_counts.most_common(40):
+    print(f"{cnt:4d} {msg}")
+
+print("\nFirst 120 Apache lifecycle-ish lines:")
+for idx,l in apache_lines[:120]:
+    print(f"{idx:04d} {l}")
+
+# 4) Shared memory / scoreboard file lines specifically (shm, mmap, file path)
+shm_pat = re.compile(r"(shm|shared memory|mmap|apr_shm|scoreboard.*file|mutex|semaphore|sem_)", re.I)
+shm_lines = [(i,l) for i,l in enumerate(lines) if shm_pat.search(l)]
+print("\nSHM/mmap/mutex related lines:", len(shm_lines))
+shm_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in shm_lines)
+print("\nTop 30 SHM/mmap/mutex patterns:")
+for msg,cnt in shm_counts.most_common(30):
+    print(f"{cnt:4d} {msg}")
+print("\nFirst 120 SHM/mmap/mutex lines:")
+for idx,l in shm_lines[:120]:
+    print(f"{idx:04d} {l}")
+```[[ ## reasoning ## ]]
+We still lack a concrete low-level cause behind the repetitive mod_jk/mod_jk2 “workerEnv in error state X” messages. Next I’ll search the full log for any explicit failure/errno/permission/shm/socket/open messages (especially around jk/jk2), and for true Apache restart/startup indicators (Apache/version, resuming normal operations, caught signal). This should confirm whether the mod_jk2 scoreboard/shared-memory layer is failing or if Apache is repeatedly restarting/crashing.
+Code:
+```python
+import re, collections
+
+lines = log_content.splitlines()
+
+def strip_prefix(l: str) -> str:
+    return re.sub(r'^\[[^\]]+\]\s*\[[^\]]+\]\s*', '', l)
+
+def norm_nums(s: str) -> str:
+    return re.sub(r'\b\d+\b', '<N>', s)
+
+# 1) Look for explicit failure-ish text anywhere
+fail_pat = re.compile(r"(can't|cannot|failed|failure|errno|permission denied|no such file|invalid|corrupt|segmentation|assert|panic)", re.I)
+fail_lines = [(i,l) for i,l in enumerate(lines) if fail_pat.search(l)]
+print("Explicit fail-ish lines:", len(fail_lines))
+# Show top patterns
+fail_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in fail_lines)
+print("\nTop 40 fail-ish patterns:")
+for msg,cnt in fail_counts.most_common(40):
+    print(f"{cnt:4d} {msg}")
+
+print("\nFirst 80 raw fail-ish lines:")
+for idx,l in fail_lines[:80]:
+    print(f"{idx:04d} {l}")
+
+# 2) Restrict to jk/jk2 related explicit failures
+fail_jk_lines = [(i,l) for i,l in fail_lines if 'jk' in l.lower()]
+print("\nFail-ish lines that mention jk/jk2:", len(fail_jk_lines))
+jk_fail_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in fail_jk_lines)
+print("\nTop jk fail-ish patterns:")
+for msg,cnt in jk_fail_counts.most_common(40):
+    print(f"{cnt:4d} {msg}")
+print("\nRaw jk fail-ish lines:")
+for idx,l in fail_jk_lines[:120]:
+    print(f"{idx:04d} {l}")
+
+# 3) True Apache lifecycle indicators
+apache_pat = re.compile(r"(apache/|httpd|resuming normal operations|configured -- resuming|server built|caught sig|sigterm|sighup|graceful|shutdown|restart)", re.I)
+apache_lines = [(i,l) for i,l in enumerate(lines) if apache_pat.search(l)]
+print("\nApache lifecycle-ish lines:", len(apache_lines))
+apache_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in apache_lines)
+print("\nTop 40 Apache lifecycle-ish patterns:")
+for msg,cnt in apache_counts.most_common(40):
+    print(f"{cnt:4d} {msg}")
+
+print("\nFirst 120 Apache lifecycle-ish lines:")
+for idx,l in apache_lines[:120]:
+    print(f"{idx:04d} {l}")
+
+# 4) Shared memory / scoreboard file lines specifically (shm, mmap, file path)
+shm_pat = re.compile(r"(shm|shared memory|mmap|apr_shm|scoreboard.*file|mutex|semaphore|sem_)", re.I)
+shm_lines = [(i,l) for i,l in enumerate(lines) if shm_pat.search(l)]
+print("\nSHM/mmap/mutex related lines:", len(shm_lines))
+shm_counts = collections.Counter(norm_nums(strip_prefix(l)) for _,l in shm_lines)
+print("\nTop 30 SHM/mmap/mutex patterns:")
+for msg,cnt in shm_counts.most_common(30):
+    print(f"{cnt:4d} {msg}")
+print("\nFirst 120 SHM/mmap/mutex lines:")
+for idx,l in shm_lines[:120]:
+    print(f"{idx:04d} {l}")
+```
+[lm] call start: openai/gpt-5.2
