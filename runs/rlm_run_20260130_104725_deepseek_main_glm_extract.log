@@ -1,0 +1,107 @@
+============================================================
+RLM Log Analyzer - Root Cause Analysis
+============================================================
+
+Log file: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/log/Apache_2k.log
+Run artifacts: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/runs
+Main model (code generation): deepseek/deepseek-r1-0528:free
+Sub model (semantic queries): z-ai/glm-4.5-air:free
+Budget: $2.00 (reserve $0.35)
+
+Loading log file...
+Loaded 169,240 characters (2000 lines)
+
+Initializing language models...
+Models initialized successfully!
+
+Creating RLM analyzer...
+RLM analyzer created!
+
+============================================================
+Starting RLM Analysis...
+============================================================
+
+The RLM will iteratively write Python code to:
+  1. Explore and understand the log structure
+  2. Identify error patterns and frequencies
+  3. Use llm_query() for semantic analysis of log entries
+  4. Correlate events to find root causes
+  5. Submit final analysis with recommendations
+
+------------------------------------------------------------
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=57.33s +tokens(p/c/t)=946/1035/1981 +cost=$0.0000 total=$0.0000
+[lm] call start: z-ai/glm-4.5-air:free
+[lm] call end:   z-ai/glm-4.5-air:free duration=43.43s +tokens(p/c/t)=782/1055/1837 +cost=$0.0000 total=$0.0000
+2026/01/30 10:49:29 INFO dspy.predict.rlm: RLM iteration 1/10
+Reasoning: 1. First, I'll inspect the log's basic properties: total lines, first/last entries, and sample content to understand the format
+2. Checking the distribution of log levels (notice, error, etc.) will help prioritize critical issues
+3. I'll look for repeating patterns or frequent errors that might indicate systemic problems
+4. Since this is the first iteration.Edubetterways.cn, keeping analysis simple to gather foundational insights before deeper investigation
+Code:
+# Split log content into lines
+log_lines = log_content.split('\n')
+total_lines = len(log_lines)
+
+# Analyze log level distribution
+log_level_counts = {}
+for line in log_lines:
+    # Extract log level between [brackets] using regex
+    match = re.search(r'\[(\w+)\]', line)
+    if match:
+        level = match.group(1)
+        log_level_counts[level] = log_level_counts.get(level, 0) + 1
+
+# Show first 3 and last 3 log entries
+start_end_samples = "\n".join(log_lines[:3] + ["..."] + log_lines[-3:])
+
+# Identify common error patterns
+error_lines = [line for line in log_lines if 'error' in line.lower()]
+common_errors = {}
+for line in error_lines:
+    # Extract message content after log level
+    message = line.split('] ')[-1] if ']' in line else line
+    common_errors[message] = common_errors.get(message, 0) + 1
+top_errors = sorted(common_errors.items(), key=lambda x: x[1], reverse=True)[:5]
+
+# Display key insights
+print(f"Total log entries: {total_lines}")
+print("\nLog level distribution:")
+for level, count in sorted(log_level_counts.items()):
+    print(f"- {level}: {count} entries")
+print(f"\nSample error count: {len(error_lines)}")
+print("\nTop recurring error messages:")
+for error, count in top_errors:
+    print(f"({count}x) {error[:100]}{'...' if len(error)>100 else ''}")
+print("\nFirst and last log entries:")
+print(start_end_samples)
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=64.10s +tokens(p/c/t)=1486/1400/2886 +cost=$0.0000 total=$0.0000
+2026/01/30 10:50:51 INFO dspy.predict.rlm: RLM iteration 2/10
+Reasoning: None
+Code:
+None
+
+❌ Error during analysis: 'NoneType' object has no attribute 'strip'
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/rlm_log_analyze.py", line 509, in main
+    result = rlm_analyzer(log_content=log_content)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/primitives/module.py", line 82, in __call__
+    return self.forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/rlm_log_analyze.py", line 324, in forward
+    result = self._execute_iteration(repl, variables, history, iteration, input_args, output_field_names)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/rlm.py", line 513, in _execute_iteration
+    code = _strip_code_fences(action.code)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/rlm.py", line 70, in _strip_code_fences
+    code = code.strip()
+           ^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'strip'

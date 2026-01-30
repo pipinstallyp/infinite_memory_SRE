@@ -1,0 +1,81 @@
+============================================================
+RLM Log Analyzer - Root Cause Analysis
+============================================================
+
+Log file: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/log/Apache_2k.log
+Run artifacts: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/runs
+Main model (code generation): deepseek/deepseek-r1-0528:free
+Sub model (semantic queries): z-ai/glm-4.5-air:free
+Budget: $2.00 (reserve $0.35)
+
+Loading log file...
+Loaded 169,240 characters (2000 lines)
+
+Initializing language models...
+Models initialized successfully!
+
+Creating RLM analyzer...
+RLM analyzer created!
+
+============================================================
+Starting RLM Analysis...
+============================================================
+
+The RLM will iteratively write Python code to:
+  1. Explore and understand the log structure
+  2. Identify error patterns and frequencies
+  3. Use llm_query() for semantic analysis of log entries
+  4. Correlate events to find root causes
+  5. Submit final analysis with recommendations
+
+------------------------------------------------------------
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=0.01s +tokens(p/c/t)=0/0/0 +cost=$0.0000 total=$0.0000
+[lm] call start: z-ai/glm-4.5-air:free
+[lm] call end:   z-ai/glm-4.5-air:free duration=0.00s +tokens(p/c/t)=0/0/0 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=0.08s +tokens(p/c/t)=0/0/0 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=50.82s +tokens(p/c/t)=1520/674/2194 +cost=$0.0000 total=$0.0000
+[lm] call start: z-ai/glm-4.5-air:free
+[lm] call end:   z-ai/glm-4.5-air:free duration=26.54s +tokens(p/c/t)=593/836/1429 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=62.64s +tokens(p/c/t)=1951/1120/3071 +cost=$0.0000 total=$0.0000
+[lm] call start: z-ai/glm-4.5-air:free
+[lm] call end:   z-ai/glm-4.5-air:free duration=36.44s +tokens(p/c/t)=627/886/1513 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=62.79s +tokens(p/c/t)=2410/1220/3630 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=49.42s +tokens(p/c/t)=2445/657/3102 +cost=$0.0000 total=$0.0000
+[lm] call start: z-ai/glm-4.5-air:free
+[lm] call end:   z-ai/glm-4.5-air:free duration=29.01s +tokens(p/c/t)=638/862/1500 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=37.42s +tokens(p/c/t)=2909/949/3858 +cost=$0.0000 total=$0.0000
+[lm] call start: z-ai/glm-4.5-air:free
+[lm] call end:   z-ai/glm-4.5-air:free duration=22.43s +tokens(p/c/t)=769/1232/2001 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=27.31s +tokens(p/c/t)=3588/690/4278 +cost=$0.0000 total=$0.0000
+[lm] call start: z-ai/glm-4.5-air:free
+[lm] call end:   z-ai/glm-4.5-air:free duration=30.56s +tokens(p/c/t)=616/858/1474 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=62.79s +tokens(p/c/t)=4081/1100/5181 +cost=$0.0000 total=$0.0000
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=63.98s +tokens(p/c/t)=4115/1070/5185 +cost=$0.0000 total=$0.0000
+2026/01/30 11:11:06 WARNING dspy.predict.rlm: RLM reached max iterations, using extract to get final output
+[lm] call start: deepseek/deepseek-r1-0528:free
+[lm] call end:   deepseek/deepseek-r1-0528:free duration=63.67s +tokens(p/c/t)=3749/850/4599 +cost=$0.0000 total=$0.0000
+
+============================================================
+ANALYSIS RESULTS
+============================================================
+
+📋 ROOT CAUSE:
+----------------------------------------
+None
+
+❌ Error during analysis: 'NoneType' object has no attribute 'upper'
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/rlm_log_analyze.py", line 569, in main
+    print(f"\n⚠️  SEVERITY: {result.severity.upper()}")
+                             ^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'upper'

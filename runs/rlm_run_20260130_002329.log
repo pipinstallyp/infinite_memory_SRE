@@ -1,0 +1,744 @@
+============================================================
+RLM Log Analyzer - Root Cause Analysis
+============================================================
+
+Log file: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/log/Apache_2k.log
+Run artifacts: /Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/runs
+Main model (code generation): openai/gpt-5.2
+Sub model (semantic queries): z-ai/glm-4.7-flash
+Budget: $2.00 (reserve $0.35)
+
+Loading log file...
+Loaded 169,240 characters (2000 lines)
+
+Initializing language models...
+Models initialized successfully!
+
+Creating RLM analyzer...
+RLM analyzer created!
+
+============================================================
+Starting RLM Analysis...
+============================================================
+
+The RLM will iteratively write Python code to:
+  1. Explore and understand the log structure
+  2. Identify error patterns and frequencies
+  3. Use llm_query() for semantic analysis of log entries
+  4. Correlate events to find root causes
+  5. Submit final analysis with recommendations
+
+------------------------------------------------------------
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=30.66s +tokens(p/c/t)=1072/1300/2372 +cost=$0.0201 total=$0.0201
+2026/01/30 00:24:17 INFO dspy.predict.rlm: RLM iteration 1/12
+Reasoning: First, inspect the log structure: number of lines, date range, and most frequent severity tags/messages. Then zoom into repeated errors around mod_jk/jk2, child processes, scoreboard, and any downstream app errors. I'll start by parsing lines and extracting timestamps + severity and counting error messages.
+Code:
+import re, datetime as dt
+from collections import Counter, defaultdict
+
+text = log_content
+lines = text.splitlines()
+print("Total chars:", len(text))
+print("Total lines:", len(lines))
+print("First 5 lines:")
+print("\n".join(lines[:5]))
+print("\nLast 5 lines:")
+print("\n".join(lines[-5:]))
+
+# Parse timestamps like: [Sun Dec 04 04:47:44 2005] [error] ...
+ts_re = re.compile(r'^\[(?P<dow>\w{3}) (?P<mon>\w{3}) (?P<day>\d{2}) (?P<time>\d{2}:\d{2}:\d{2}) (?P<year>\d{4})\] \[(?P<sev>\w+)\] (?P<msg>.*)$')
+months = {m:i for i,m in enumerate(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"], start=1)}
+
+parsed = []
+bad = 0
+for ln in lines:
+    m = ts_re.match(ln)
+    if not m:
+        bad += 1
+        continue
+    d = int(m.group("day"))
+    mon = months.get(m.group("mon"), 1)
+    year = int(m.group("year"))
+    t = m.group("time")
+    hh,mm,ss = map(int, t.split(":"))
+    ts = dt.datetime(year, mon, d, hh, mm, ss)
+    parsed.append((ts, m.group("sev").lower(), m.group("msg")))
+
+print("Parsed lines:", len(parsed), "Unparsed:", bad)
+if parsed:
+    print("Time range:", parsed[0][0], "->", parsed[-1][0])
+
+sev_counts = Counter(sev for _,sev,_ in parsed)
+print("Severity counts:", sev_counts)
+
+# Top 20 error messages (normalized a bit)
+def normalize(msg):
+    msg = re.sub(r'\b\d+\b', '<num>', msg)
+    msg = re.sub(r'0x[0-9a-fA-F]+', '0x<hex>', msg)
+    msg = re.sub(r'\s+', ' ', msg).strip()
+    return msg
+
+err_msgs = Counter(normalize(msg) for _,sev,msg in parsed if sev in ("error","crit","alert","emerg"))
+print("\nTop 15 error patterns:")
+for msg,c in err_msgs.most_common(15):
+    print(c, msg[:200])
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=43.78s +tokens(p/c/t)=2162/2088/4250 +cost=$0.0330 total=$0.0531
+2026/01/30 00:25:14 INFO dspy.predict.rlm: RLM iteration 2/12
+Reasoning: Need to pinpoint why “mod_jk child workerEnv in error state 6” repeats. Next: inspect other (less frequent) error patterns and capture log context around several occurrences of the error state, plus search for signals/segfault/child exit, scoreboard/shm issues, config parse failures, or backend connection failures. This should reveal the underlying trigger for error state 6.[[ ## code ## ]]
+```python
+import re
+from collections import Counter
+
+# show more error patterns
+err_msgs = Counter(normalize(msg) for _,sev,msg in parsed if sev=="error")
+print("Unique error patterns:", len(err_msgs))
+for msg,c in err_msgs.most_common(40):
+    print(f"{c:4d} {msg[:220]}")
+
+# search for keywords that might explain workerEnv state 6
+keywords = ["seg", "fault", "core", "child", "exited", "signal", "scoreboard", "shm", "shared", "permission", "denied",
+            "workers2.properties", "open", "can't", "cannot", "fail", "invalid", "errno", "apr", "jk2", "jk_",
+            "connect", "backend", "tomcat", "refused", "timeout"]
+hits = {k:0 for k in keywords}
+for _,sev,msg in parsed:
+    low = msg.lower()
+    for k in keywords:
+        if k in low:
+            hits[k]+=1
+print("\nKeyword hit counts (non-zero):")
+for k,v in sorted([(k,v) for k,v in hits.items() if v], key=lambda x:-x[1])[:30]:
+    print(f"{k:12s} {v}")
+
+# show contexts around first 5 occurrences of error state 6
+target = "mod_jk child workerEnv in error state"
+idxs = [i for i,(_,sev,msg) in enumerate(parsed) if sev=="error" and target in msg]
+print("\nOccurrences of error state:", len(idxs))
+for j,i in enumerate(idxs[:5]):
+    print("\n--- context", j, "at", parsed[i][0], "---")
+    start = max(0, i-6); end = min(len(parsed), i+6)
+    for k in range(start,end):
+        ts,sev,msg = parsed[k]
+        prefix = ">>" if k==i else "  "
+        print(f"{prefix} {ts} [{sev}] {msg}")
+
+# check if any lines mention errno or specific file failures
+errno_lines = [(ts,sev,msg) for ts,sev,msg in parsed if "errno" in msg.lower() or "denied" in msg.lower()]
+print("\nerrno/denied lines:", len(errno_lines))
+print("\n".join([f"{ts} [{sev}] {msg}" for ts,sev,msg in errno_lines[:20]]))
+```[[ ## reasoning ## ]]
+Need to pinpoint why “mod_jk child workerEnv in error state 6” repeats. Next: inspect other (less frequent) error patterns and capture log context around several occurrences of the error state, plus search for signals/segfault/child exit, scoreboard/shm issues, config parse failures, or backend connection failures. This should reveal the underlying trigger for error state 6.
+Code:
+```python
+import re
+from collections import Counter
+
+# show more error patterns
+err_msgs = Counter(normalize(msg) for _,sev,msg in parsed if sev=="error")
+print("Unique error patterns:", len(err_msgs))
+for msg,c in err_msgs.most_common(40):
+    print(f"{c:4d} {msg[:220]}")
+
+# search for keywords that might explain workerEnv state 6
+keywords = ["seg", "fault", "core", "child", "exited", "signal", "scoreboard", "shm", "shared", "permission", "denied",
+            "workers2.properties", "open", "can't", "cannot", "fail", "invalid", "errno", "apr", "jk2", "jk_",
+            "connect", "backend", "tomcat", "refused", "timeout"]
+hits = {k:0 for k in keywords}
+for _,sev,msg in parsed:
+    low = msg.lower()
+    for k in keywords:
+        if k in low:
+            hits[k]+=1
+print("\nKeyword hit counts (non-zero):")
+for k,v in sorted([(k,v) for k,v in hits.items() if v], key=lambda x:-x[1])[:30]:
+    print(f"{k:12s} {v}")
+
+# show contexts around first 5 occurrences of error state 6
+target = "mod_jk child workerEnv in error state"
+idxs = [i for i,(_,sev,msg) in enumerate(parsed) if sev=="error" and target in msg]
+print("\nOccurrences of error state:", len(idxs))
+for j,i in enumerate(idxs[:5]):
+    print("\n--- context", j, "at", parsed[i][0], "---")
+    start = max(0, i-6); end = min(len(parsed), i+6)
+    for k in range(start,end):
+        ts,sev,msg = parsed[k]
+        prefix = ">>" if k==i else "  "
+        print(f"{prefix} {ts} [{sev}] {msg}")
+
+# check if any lines mention errno or specific file failures
+errno_lines = [(ts,sev,msg) for ts,sev,msg in parsed if "errno" in msg.lower() or "denied" in msg.lower()]
+print("\nerrno/denied lines:", len(errno_lines))
+print("\n".join([f"{ts} [{sev}] {msg}" for ts,sev,msg in errno_lines[:20]]))
+```
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=43.26s +tokens(p/c/t)=5321/2703/8024 +cost=$0.0472 total=$0.1002
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=27.38s +tokens(p/c/t)=5315/1142/6457 +cost=$0.0253 total=$0.1255
+2026/01/30 00:26:25 INFO dspy.predict.rlm: RLM iteration 3/12
+Reasoning: Next, inspect the *notice* messages (since many contain hints like restarts, child exits, scoreboard details) and zoom into the less-common error types: `jk2_init() Can't find child ... in scoreboard` and `mod_jk child init ...`. I’ll extract contexts around those messages, and also sample lines mentioning `core` to see what’s actually being logged (e.g., child exit/restart, scoreboard/shared memory issues).
+Code:
+import re, random
+from collections import Counter
+
+# Top notice patterns (normalized) to understand what the system is doing around the errors
+notice_msgs = Counter(normalize(msg) for _,sev,msg in parsed if sev=="notice")
+print("Unique notice patterns:", len(notice_msgs))
+for msg,c in notice_msgs.most_common(20):
+    print(f"{c:4d} {msg[:220]}")
+
+# Helper to print context around any regex match in msg
+def show_context(match_fn, n=3, before=6, after=6):
+    idxs = [i for i,(ts,sev,msg) in enumerate(parsed) if match_fn(ts,sev,msg)]
+    print("matches:", len(idxs))
+    for j,i in enumerate(idxs[:n]):
+        print("\n--- context", j, "at", parsed[i][0], "---")
+        for k in range(max(0,i-before), min(len(parsed), i+after+1)):
+            ts,sev,msg = parsed[k]
+            prefix = ">>" if k==i else "  "
+            print(f"{prefix} {ts} [{sev}] {msg}")
+
+print("\nContext: jk2_init() Can't find child ... in scoreboard")
+show_context(lambda ts,sev,msg: sev=="error" and "Can't find child" in msg, n=5)
+
+print("\nContext: mod_jk child init")
+show_context(lambda ts,sev,msg: sev=="error" and msg.startswith("mod_jk child init"), n=5)
+
+# What lines contain 'core'?
+core_lines = [(ts,sev,msg) for ts,sev,msg in parsed if 'core' in msg.lower()][:20]
+print("\nFirst 20 lines containing 'core':")
+print("\n".join([f"{ts} [{sev}] {msg}" for ts,sev,msg in core_lines]))
+
+# Also sample a few more 'core' lines spread across the log
+core_idxs = [i for i,(ts,sev,msg) in enumerate(parsed) if 'core' in msg.lower()]
+for i in [core_idxs[0], core_idxs[len(core_idxs)//2], core_idxs[-1]]:
+    ts,sev,msg = parsed[i]
+    print("\nSample core line at", ts, ":", msg[:240])
+
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=64.54s +tokens(p/c/t)=7886/3848/11734 +cost=$0.0677 total=$0.1932
+2026/01/30 00:27:29 INFO dspy.predict.rlm: RLM iteration 4/12
+Reasoning: We’ve identified only a handful of error patterns, dominated by `mod_jk child workerEnv in error state N` and some scoreboard-related messages. Next I’ll quantify the different “error state” codes and `child init` return codes, then inspect tail/head samples and a few clustered intervals to see whether these correlate with Apache child churn (frequent fork/restart) and scoreboard inconsistencies—likely pointing to mod_jk2 initialization/scoreboard corruption or repeated graceful restarts.[[ ## code ## ]]
+```python
+import re
+from collections import Counter, defaultdict
+
+# Count workerEnv error state codes
+state_re = re.compile(r'mod_jk child workerEnv in error state (\d+)')
+state_counts = Counter()
+state_times = defaultdict(list)
+
+for ts, sev, msg in parsed:
+    if sev != "error": 
+        continue
+    m = state_re.search(msg)
+    if m:
+        s = int(m.group(1))
+        state_counts[s] += 1
+        state_times[s].append(ts)
+
+print("workerEnv error state counts:", state_counts)
+
+# Count child init codes like: mod_jk child init 1 -2
+init_re = re.compile(r'mod_jk child init (\S+)\s+(\S+)')
+init_counts = Counter()
+init_examples = defaultdict(list)
+for ts, sev, msg in parsed:
+    if sev != "error": 
+        continue
+    m = init_re.match(msg)
+    if m:
+        a,b = m.group(1), m.group(2)
+        init_counts[(a,b)] += 1
+        if len(init_examples[(a,b)]) < 3:
+            init_examples[(a,b)].append((ts,msg))
+
+print("\nchild init code counts:", init_counts)
+for k,v in init_counts.items():
+    print(" ", k, "->", v, "examples:", init_examples[k])
+
+# Print first/last 30 lines to see if any other patterns are there
+print("\n=== First 30 lines ===")
+print("\n".join(lines[:30]))
+print("\n=== Last 50 lines ===")
+print("\n".join(lines[-50:]))
+
+# Analyze cadence: how often are error state messages logged? distribution of gaps for the dominant state
+dominant_state = state_counts.most_common(1)[0][0] if state_counts else None
+if dominant_state is not None:
+    times = sorted(state_times[dominant_state])
+    gaps = [(times[i+1]-times[i]).total_seconds() for i in range(len(times)-1)]
+    gap_counts = Counter(int(g) for g in gaps)  # seconds
+    print(f"\nDominant state {dominant_state} gap stats (seconds):")
+    if gaps:
+        import statistics as stats
+        print("  count:", len(gaps), "min:", min(gaps), "median:", stats.median(gaps), "p90:", sorted(gaps)[int(0.9*len(gaps))-1], "max:", max(gaps))
+        print("  most common integer gaps:", gap_counts.most_common(10))
+
+# How many unique child PIDs seen?
+found_child_re = re.compile(r'jk2_init\(\) Found child (\d+) in scoreboard slot (\d+)')
+pids = set()
+slot_counts = Counter()
+for ts, sev, msg in parsed:
+    m = found_child_re.match(msg)
+    if m:
+        pids.add(int(m.group(1)))
+        slot_counts[int(m.group(2))] += 1
+print("\nUnique child PIDs seen in scoreboard:", len(pids))
+print("Most common scoreboard slots:", slot_counts.most_common(10))
+print("Min/Max PID seen:", (min(pids), max(pids)) if pids else None)
+
+# Show a few tight clusters around periods where error states are not 6 (e.g., 8 or 9)
+for s in sorted(state_counts):
+    if s == dominant_state: 
+        continue
+    # show first occurrence context
+    idx = next(i for i,(ts,sev,msg) in enumerate(parsed) if sev=="error" and f"error state {s}" in msg)
+    print(f"\n--- First occurrence of error state {s} at {parsed[idx][0]} ---")
+    for k in range(max(0, idx-8), min(len(parsed), idx+8)):
+        ts,sev,msg = parsed[k]
+        prefix = ">>" if k==idx else "  "
+        print(f"{prefix} {ts} [{sev}] {msg}")
+```[[ ## reasoning ## ]]
+We’ve identified only a handful of error patterns, dominated by `mod_jk child workerEnv in error state N` and some scoreboard-related messages. Next I’ll quantify the different “error state” codes and `child init` return codes, then inspect tail/head samples and a few clustered intervals to see whether these correlate with Apache child churn (frequent fork/restart) and scoreboard inconsistencies—likely pointing to mod_jk2 initialization/scoreboard corruption or repeated graceful restarts.
+Code:
+```python
+import re
+from collections import Counter, defaultdict
+
+# Count workerEnv error state codes
+state_re = re.compile(r'mod_jk child workerEnv in error state (\d+)')
+state_counts = Counter()
+state_times = defaultdict(list)
+
+for ts, sev, msg in parsed:
+    if sev != "error": 
+        continue
+    m = state_re.search(msg)
+    if m:
+        s = int(m.group(1))
+        state_counts[s] += 1
+        state_times[s].append(ts)
+
+print("workerEnv error state counts:", state_counts)
+
+# Count child init codes like: mod_jk child init 1 -2
+init_re = re.compile(r'mod_jk child init (\S+)\s+(\S+)')
+init_counts = Counter()
+init_examples = defaultdict(list)
+for ts, sev, msg in parsed:
+    if sev != "error": 
+        continue
+    m = init_re.match(msg)
+    if m:
+        a,b = m.group(1), m.group(2)
+        init_counts[(a,b)] += 1
+        if len(init_examples[(a,b)]) < 3:
+            init_examples[(a,b)].append((ts,msg))
+
+print("\nchild init code counts:", init_counts)
+for k,v in init_counts.items():
+    print(" ", k, "->", v, "examples:", init_examples[k])
+
+# Print first/last 30 lines to see if any other patterns are there
+lines = log_content.splitlines()
+print("\n=== First 30 lines ===")
+print("\n".join(lines[:30]))
+print("\n=== Last 50 lines ===")
+print("\n".join(lines[-50:]))
+
+# Analyze cadence: how often are error state messages logged? distribution of gaps for the dominant state
+dominant_state = state_counts.most_common(1)[0][0] if state_counts else None
+if dominant_state is not None:
+    times = sorted(state_times[dominant_state])
+    gaps = [(times[i+1]-times[i]).total_seconds() for i in range(len(times)-1)]
+    gap_counts = Counter(int(g) for g in gaps)  # seconds
+    print(f"\nDominant state {dominant_state} gap stats (seconds):")
+    if gaps:
+        import statistics as stats
+        print("  count:", len(gaps), "min:", min(gaps), "median:", stats.median(gaps), "p90:", sorted(gaps)[int(0.9*len(gaps))-1], "max:", max(gaps))
+        print("  most common integer gaps:", gap_counts.most_common(10))
+
+# How many unique child PIDs seen?
+found_child_re = re.compile(r'jk2_init\(\) Found child (\d+) in scoreboard slot (\d+)')
+pids = set()
+slot_counts = Counter()
+for ts, sev, msg in parsed:
+    m = found_child_re.match(msg)
+    if m:
+        pids.add(int(m.group(1)))
+        slot_counts[int(m.group(2))] += 1
+print("\nUnique child PIDs seen in scoreboard:", len(pids))
+print("Most common scoreboard slots:", slot_counts.most_common(10))
+print("Min/Max PID seen:", (min(pids), max(pids)) if pids else None)
+
+# Show a few tight clusters around periods where error states are not 6 (e.g., 8 or 9)
+for s in sorted(state_counts):
+    if s == dominant_state: 
+        continue
+    # show first occurrence context
+    idx = next(i for i,(ts,sev,msg) in enumerate(parsed) if sev=="error" and f"error state {s}" in msg)
+    print(f"\n--- First occurrence of error state {s} at {parsed[idx][0]} ---")
+    for k in range(max(0, idx-8), min(len(parsed), idx+8)):
+        ts,sev,msg = parsed[k]
+        prefix = ">>" if k==idx else "  "
+        print(f"{prefix} {ts} [{sev}] {msg}")
+```
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=101.75s +tokens(p/c/t)=11777/4662/16439 +cost=$0.0859 total=$0.2791
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=84.35s +tokens(p/c/t)=11771/3359/15130 +cost=$0.0676 total=$0.3467
+2026/01/30 00:30:36 INFO dspy.predict.rlm: RLM iteration 5/12
+Reasoning: We’ve mostly seen only 4 error message families; to identify a credible root cause we need to (1) confirm whether every `workerEnv.init()` is followed by a `workerEnv in error state` and how quickly, (2) check whether scoreboard inconsistencies (`Can't find child`) correlate with certain error-state codes, and (3) use a semantic LLM pass to interpret mod_jk2 “error state N”/“child init 1 -2” meanings and likely causes (e.g., scoreboard/shm mismatch, stale/corrupt scoreboard, misconfiguration).
+Code:
+import re, datetime as dt
+from collections import Counter, defaultdict
+
+# Build quick indexes of key events
+init_idxs = [i for i,(ts,sev,msg) in enumerate(parsed) if sev=="notice" and msg.startswith("workerEnv.init() ok")]
+err_state_idxs = [i for i,(ts,sev,msg) in enumerate(parsed) if sev=="error" and msg.startswith("mod_jk child workerEnv in error state")]
+score_err_idxs = [i for i,(ts,sev,msg) in enumerate(parsed) if sev=="error" and msg.startswith("jk2_init() Can't find child")]
+
+print("Counts: init", len(init_idxs), "err_state", len(err_state_idxs), "score_err", len(score_err_idxs))
+
+# For each init, find nearest following error state within 60s
+follow_delta = []
+no_follow = 0
+for i in init_idxs:
+    ts0 = parsed[i][0]
+    # scan forward a bit
+    found = None
+    for j in range(i+1, min(len(parsed), i+30)):
+        ts,sev,msg = parsed[j]
+        if (ts-ts0).total_seconds() > 60:
+            break
+        if sev=="error" and msg.startswith("mod_jk child workerEnv in error state"):
+            found = (ts-ts0).total_seconds()
+            break
+    if found is None:
+        no_follow += 1
+    else:
+        follow_delta.append(found)
+
+import statistics as stats
+print("init->err_state within 60s:", len(follow_delta), "/", len(init_idxs), "missing:", no_follow)
+if follow_delta:
+    print("  delta stats (s): min", min(follow_delta), "median", stats.median(follow_delta), "p90", sorted(follow_delta)[int(0.9*len(follow_delta))-1], "max", max(follow_delta))
+
+# Correlate score_err bursts with error state codes within +-10s
+state_re = re.compile(r'error state (\d+)')
+
+corr = Counter()
+for si in score_err_idxs:
+    ts0 = parsed[si][0]
+    for j in range(max(0, si-20), min(len(parsed), si+20)):
+        ts,sev,msg = parsed[j]
+        if abs((ts-ts0).total_seconds()) <= 10 and sev=="error":
+            m = state_re.search(msg)
+            if m:
+                corr[int(m.group(1))] += 1
+print("\nError-state codes observed within 10s of scoreboard errors:", corr)
+
+# Hourly counts of err_state (dominant) to see whether this is chronic or spike-y
+by_hour = Counter()
+for ts,sev,msg in parsed:
+    if sev=="error" and msg.startswith("mod_jk child workerEnv in error state"):
+        by_hour[(ts.date(), ts.hour)] += 1
+print("\nTop 10 hours by err_state volume:")
+for (d,h),c in by_hour.most_common(10):
+    print(f"{d} {h:02d}:00  {c}")
+
+# Show unique raw messages (not normalized) for errors to ensure nothing is hidden
+raw_err = Counter(msg for _,sev,msg in parsed if sev=="error")
+print("\nRaw unique error messages:", len(raw_err))
+for msg,c in raw_err.most_common(20):
+    print(f"{c:4d} {msg}")
+
+# Ask sub-LLM for semantic interpretation of these mod_jk2 errors
+sample_block = "\n".join(lines[:80])
+# Add one representative burst around scoreboard error
+burst_idx = score_err_idxs[0] if score_err_idxs else err_state_idxs[0]
+burst_start = max(0, burst_idx-15); burst_end = min(len(lines), burst_idx+25)
+burst_block = "\n".join(lines[burst_start:burst_end])
+
+prompt = f"""You are an expert in Apache httpd mod_jk/mod_jk2.
+Given these log snippets, explain what 'mod_jk child workerEnv in error state N' means (esp. states 6-10) and what 'mod_jk child init 1 -2' indicates.
+Then infer the most likely root cause(s) consistent with these logs, prioritizing scoreboard/shared-memory issues vs configuration issues.
+
+Snippet A (start of log):\n{sample_block}\n\nSnippet B (around a scoreboard error burst):\n{burst_block}\n"""
+
+analysis = llm_query(prompt)
+print("\n=== sub-LLM semantic analysis ===\n")
+print(analysis[:2500])
+print("\n[truncated] total chars:", len(analysis))
+[lm] call start: z-ai/glm-4.7-flash
+[lm] call end:   z-ai/glm-4.7-flash duration=177.50s +tokens(p/c/t)=4062/6051/10113 +cost=$0.0027 total=$0.3494
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=6.47s error=APIError +tokens(p/c/t)=0/0/0 +cost=$0.0000 total=$0.3494
+[lm] call start: openai/gpt-5.2
+[lm] call end:   openai/gpt-5.2 duration=5.27s error=APIError +tokens(p/c/t)=0/0/0 +cost=$0.0000 total=$0.3494
+
+❌ Error during analysis: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 64793. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit","code":402,"metadata":{"provider_name":null}},"user_id":"user_2dVdWAnhlp2g0AaLPlZ6zkvif7U"}
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 221, in _make_common_sync_call
+    response = sync_httpx_client.post(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 1010, in post
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 992, in post
+    response.raise_for_status()
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '402 Payment Required' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/402
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 3137, in completion
+    response = base_llm_http_handler.completion(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 524, in completion
+    response = self._make_common_sync_call(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 246, in _make_common_sync_call
+    raise self._handle_error(e=e, provider_config=provider_config)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 4505, in _handle_error
+    raise provider_config.get_error_class(
+litellm.llms.openrouter.common_utils.OpenRouterException: {"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 64793. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit","code":402,"metadata":{"provider_name":null}},"user_id":"user_2dVdWAnhlp2g0AaLPlZ6zkvif7U"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 64793. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit","code":402,"metadata":{"provider_name":null}},"user_id":"user_2dVdWAnhlp2g0AaLPlZ6zkvif7U"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 73, in __call__
+    return super().__call__(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/base.py", line 202, in __call__
+    outputs = lm(messages=inputs, **lm_kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/base_lm.py", line 91, in __call__
+    response = self.forward(prompt=prompt, messages=messages, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 159, in forward
+    results = completion(
+              ^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/cache.py", line 253, in sync_wrapper
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 360, in litellm_completion
+    return litellm.completion(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1685, in wrapper
+    return litellm.completion_with_retries(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4268, in completion_with_retries
+    return retryer(original_function, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 477, in __call__
+    do = self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 378, in iter
+    result = action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 420, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 187, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 480, in __call__
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1740, in wrapper
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 64793. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit","code":402,"metadata":{"provider_name":null}},"user_id":"user_2dVdWAnhlp2g0AaLPlZ6zkvif7U"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 221, in _make_common_sync_call
+    response = sync_httpx_client.post(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 1010, in post
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/http_handler.py", line 992, in post
+    response.raise_for_status()
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '402 Payment Required' for url 'https://openrouter.ai/api/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/402
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 3137, in completion
+    response = base_llm_http_handler.completion(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 524, in completion
+    response = self._make_common_sync_call(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 246, in _make_common_sync_call
+    raise self._handle_error(e=e, provider_config=provider_config)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/llms/custom_httpx/llm_http_handler.py", line 4505, in _handle_error
+    raise provider_config.get_error_class(
+litellm.llms.openrouter.common_utils.OpenRouterException: {"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 64793. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit","code":402,"metadata":{"provider_name":null}},"user_id":"user_2dVdWAnhlp2g0AaLPlZ6zkvif7U"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 64793. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit","code":402,"metadata":{"provider_name":null}},"user_id":"user_2dVdWAnhlp2g0AaLPlZ6zkvif7U"}
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/rlm_log_analyze.py", line 505, in main
+    result = rlm_analyzer(log_content=log_content)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/primitives/module.py", line 82, in __call__
+    return self.forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/rlm_log_analyze.py", line 324, in forward
+    result = self._execute_iteration(repl, variables, history, iteration, input_args, output_field_names)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/rlm.py", line 501, in _execute_iteration
+    action = self.generate_action(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/predict.py", line 104, in __call__
+    return super().__call__(**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/primitives/module.py", line 82, in __call__
+    return self.forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/predict/predict.py", line 198, in forward
+    completions = adapter(lm, lm_kwargs=config, signature=signature, demos=demos, inputs=kwargs)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 86, in __call__
+    return JSONAdapter()(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/json_adapter.py", line 73, in __call__
+    result = self._json_adapter_call_common(lm, lm_kwargs, signature, demos, inputs, super().__call__)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/json_adapter.py", line 63, in _json_adapter_call_common
+    return call_fn(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 85, in __call__
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/chat_adapter.py", line 73, in __call__
+    return super().__call__(lm, lm_kwargs, signature, demos, inputs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/adapters/base.py", line 202, in __call__
+    outputs = lm(messages=inputs, **lm_kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 343, in sync_wrapper
+    raise exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/utils/callback.py", line 339, in sync_wrapper
+    results = fn(instance, *args, **kwargs)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/base_lm.py", line 91, in __call__
+    response = self.forward(prompt=prompt, messages=messages, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 159, in forward
+    results = completion(
+              ^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/cache.py", line 253, in sync_wrapper
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/dspy/clients/lm.py", line 360, in litellm_completion
+    return litellm.completion(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1685, in wrapper
+    return litellm.completion_with_retries(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4268, in completion_with_retries
+    return retryer(original_function, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 477, in __call__
+    do = self.iter(retry_state=retry_state)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 378, in iter
+    result = action(retry_state)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 420, in exc_check
+    raise retry_exc.reraise()
+          ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 187, in reraise
+    raise self.last_attempt.result()
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 449, in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/.local/share/uv/python/cpython-3.12.12-macos-x86_64-none/lib/python3.12/concurrent/futures/_base.py", line 401, in __get_result
+    raise self._exception
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/tenacity/__init__.py", line 480, in __call__
+    result = fn(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1740, in wrapper
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/utils.py", line 1561, in wrapper
+    result = original_function(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/main.py", line 4230, in completion
+    raise exception_type(
+          ^^^^^^^^^^^^^^^
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2378, in exception_type
+    raise e
+  File "/Users/aditya/Desktop/adisir/experimental/infinite_memory_SRE/.venv/lib/python3.12/site-packages/litellm/litellm_core_utils/exception_mapping_utils.py", line 2311, in exception_type
+    raise APIError(
+litellm.exceptions.APIError: litellm.APIError: APIError: OpenrouterException - {"error":{"message":"This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 64793. To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit","code":402,"metadata":{"provider_name":null}},"user_id":"user_2dVdWAnhlp2g0AaLPlZ6zkvif7U"}
